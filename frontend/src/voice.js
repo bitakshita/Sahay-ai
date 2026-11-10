@@ -30,6 +30,15 @@ export class Recorder {
       this.mr.stop()
     })
   }
+cancel() {
+    clearTimeout(this.timer)
+    if (this.mr) {
+      this.mr.onstop = null
+      this.mr.ondataavailable = null
+      try { if (this.mr.state !== 'inactive') this.mr.stop() } catch { /* already stopped */ }
+    }
+    this.stream?.getTracks().forEach(t => t.stop())
+  }
 }
 export async function transcribe(blob, lang) {
   const f = new FormData(); f.append('audio', blob, 'speech.wav')
@@ -38,16 +47,44 @@ export async function transcribe(blob, lang) {
   if (!r.ok) throw new Error((await r.text()).slice(0, 200))
   return r.json()
 }
-let cur
+let cur, utterance, gen = 0
+const endListeners = new Set()
+function finish() { endListeners.forEach(fn => fn()) }
+export function onSpeakingEnd(fn) { endListeners.add(fn); return () => endListeners.delete(fn) }
+export function stopSpeaking() {
+  gen += 1
+  if (cur) { cur.onended = null; cur.onerror = null; cur.pause(); URL.revokeObjectURL(cur.src); cur = null }
+  if (utterance) { utterance.onend = null; utterance.onerror = null; utterance = null }
+  speechSynthesis.cancel()
+   finish()
+}
 // Returns the engine actually used, so the UI never mislabels browser speech as Gnani.
 export async function speak(text, lang, slow = false) {
-  cur?.pause(); speechSynthesis.cancel()
+  const id = ++gen
+  if (cur) { cur.onended = null; cur.onerror = null; cur.pause(); URL.revokeObjectURL(cur.src); cur = null }
+  if (utterance) { utterance.onend = null; utterance.onerror = null; utterance = null }
+  speechSynthesis.cancel()
+  const ended = () => { if (id === gen) finish() }
   try {
     const r = await fetch('/api/voice/tts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, lang, slow }) })
+    if (id !== gen) return 'cancelled'
     if (!r.ok) throw new Error('tts ' + r.status)
-    cur = new Audio(URL.createObjectURL(await r.blob())); await cur.play(); return 'Gnani Timbre'
+       const audio = new Audio(URL.createObjectURL(await r.blob()))
+    if (id !== gen) { URL.revokeObjectURL(audio.src); return 'cancelled' }
+    cur = audio
+    audio.onended = () => { URL.revokeObjectURL(audio.src); if (cur === audio) cur = null; ended() }
+    audio.onerror = audio.onended
+    await audio.play()
+    return 'Gnani Timbre'
   } catch {
-    const u = new SpeechSynthesisUtterance(text); u.lang = lang === 'en' ? 'en-IN' : 'hi-IN'; u.rate = slow ? 0.7 : 0.9
-    speechSynthesis.speak(u); return 'Browser voice (not Gnani)'
+    if (id !== gen) return 'cancelled'
+    const u = new SpeechSynthesisUtterance(text)
+    utterance = u
+    u.lang = lang === 'en' ? 'en-IN' : 'hi-IN'
+    u.rate = slow ? 0.7 : 0.9
+    u.onend = ended
+    u.onerror = ended
+    speechSynthesis.speak(u)
+    return 'Browser voice (not Gnani)'
   }
 }

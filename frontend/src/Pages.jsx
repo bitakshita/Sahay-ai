@@ -1,81 +1,231 @@
 import { useEffect, useState } from 'react'
 import { PieChart, Pie, Cell, Tooltip, BarChart, Bar, XAxis, YAxis, Legend, ResponsiveContainer } from 'recharts'
+import { Volume2 } from 'lucide-react'
 import { api } from './api'
 import { speak } from './voice'
-const COLORS = ['#F5A524', '#4FB286', '#8E7CC3', '#E8707E', '#5AA9E6', '#9BC53D', '#A08C7D']
-const inr = n => '₹' + Math.round(n).toLocaleString('en-IN')
-const Card = ({ title, children }) => <section className="card space-y-3"><h2 className="text-2xl font-extrabold">{title}</h2>{children}</section>
-const Btn = ({ c = 'bg-sun', ...p }) => <button {...p} className={`btn ${c}`} />
-const Inp = p => <input {...p} className="field" />
-
-export function Finances({ sum, onChange }) {
+import { Button, Field, Modal, Notice, PageIntro, Stat, inr, labelize } from './ui'
+const COLORS = ['#496B55', '#6E8B78', '#8C4E3A', '#C98770', '#A8B8A6', '#5E6158', '#D7CBBF']
+const CATS = ['pension', 'fd_interest', 'rental', 'family_support', 'groceries', 'healthcare', 'utilities', 'household', 'transport', 'recurring', 'other']
+const monthLabel = m => {
+  const [y, mo] = String(m).split('-')
+  const d = new Date(Number(y), Number(mo) - 1, 1)
+  return Number.isNaN(d.getTime()) ? m : d.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })
+}
+function Transactions({ rows }) {
+  if (!rows?.length) return <p className="empty">No entries yet.</p>
+  return <ul className="tx-list">{rows.map(r => <li key={r.id}>
+    <div>
+      <p className="tx-title">{labelize(r.category)}</p>
+      <p className="tx-meta">{r.date} · {r.kind === 'income' ? 'Income' : 'Expense'}{r.source === 'demo' ? ' · Demo' : r.source === 'voice' ? ' · Voice' : ''}</p>
+    </div>
+    <p className="tx-amt">{r.kind === 'income' ? '+' : '−'}{inr(r.amount)}</p>
+  </li>)}</ul>
+}
+export function Finances({ sum, onChange, preset }) {
   const [f, setF] = useState({ kind: 'expense', category: 'groceries', amount: '' })
-  if (!sum) return null
-  const add = async e => { e.preventDefault(); if (!+f.amount) return; await api.post('/api/transactions', { items: [{ ...f, amount: +f.amount }], source: 'manual' }); setF({ ...f, amount: '' }); onChange() }
-  return <div className="space-y-4">
-    <Card title="This month">
-      <p className="text-xl">Income {inr(sum.income)} · Expenses {inr(sum.expense)} · Balance <b>{inr(sum.balance)}</b></p>
-      {sum.insight && <p className="rounded-xl bg-butter/60 p-3 text-lg">💡 {sum.insight}</p>}
-      <p className="text-sm text-slate-600">{sum.demo_count} DEMO entries · {sum.recorded_count} entries recorded by you. Insights compare entries of both kinds.</p></Card>
-    <Card title="Expenses by category">
-      <div className="h-64"><ResponsiveContainer><PieChart><Pie data={sum.by_category} dataKey="value" nameKey="name" label={e => e.name}>
-        {sum.by_category.map((_, i) => <Cell key={i} fill={COLORS[i % 7]} />)}</Pie><Tooltip formatter={v => inr(v)} /></PieChart></ResponsiveContainer></div></Card>
-    <Card title="Last 3 months"><div className="h-64"><ResponsiveContainer><BarChart data={sum.monthly}><XAxis dataKey="month" /><YAxis /><Tooltip formatter={v => inr(v)} /><Legend />
-      <Bar dataKey="income" fill="#4FB286" /><Bar dataKey="expense" fill="#F5A524" /></BarChart></ResponsiveContainer></div></Card>
-    <Card title="Add an entry"><form onSubmit={add} className="grid gap-3 sm:grid-cols-4">
-      <select className="field" value={f.kind} onChange={e => setF({ ...f, kind: e.target.value })}><option value="expense">Expense</option><option value="income">Income</option></select>
-      <select className="field" value={f.category} onChange={e => setF({ ...f, category: e.target.value })}>
-        {['pension', 'fd_interest', 'rental', 'family_support', 'groceries', 'healthcare', 'utilities', 'household', 'transport', 'recurring', 'other'].map(c => <option key={c}>{c}</option>)}</select>
-      <Inp type="number" inputMode="numeric" placeholder="Amount ₹" value={f.amount} onChange={e => setF({ ...f, amount: e.target.value })} /><Btn type="submit">Add</Btn></form></Card>
-    <Card title="Recent entries">{sum.recent.map(r => <p key={r.id} className="text-lg">{r.date} · {r.category.replace('_', ' ')} · {r.kind === 'income' ? '+' : '−'}{inr(r.amount)} {r.source === 'demo' && <span className="rounded bg-peach px-2 text-sm">DEMO</span>}</p>)}</Card>
-    <Btn c="bg-rose" onClick={async () => { if (confirm('Delete ALL stored entries (including demo)?')) { await api.del('/api/transactions'); onChange() } }}>🗑️ Delete all my data</Btn>
+              {CATS.map(c => <option key={c} value={c}>{labelize(c)}</option>)}
+          const [note, setNote] = useState('')
+  const [err, setErr] = useState('')
+  const [ask, setAsk] = useState(false)
+  useEffect(() => { if (preset?.kind) setF(s => ({ ...s, kind: preset.kind })) }, [preset])
+  if (!sum) return <p className="empty">Your finances are still loading.</p>
+  const add = async e => {
+    e.preventDefault()
+    setErr(''); setNote('')
+    if (!+f.amount) { setErr('Enter an amount before saving.'); return }
+    try {
+      await api.post('/api/transactions', { items: [{ ...f, amount: +f.amount }], source: 'manual' })
+      setF({ ...f, amount: '' }); setNote('Entry added.'); onChange()
+    } catch (ex) { setErr('Could not save that entry. ' + ex.message) }
+  }
+  const wipe = async () => {
+    try { await api.del('/api/transactions'); setAsk(false); setNote('All stored entries were deleted.'); onChange() }
+    catch (ex) { setAsk(false); setErr('Could not delete entries. ' + ex.message) }
+  }
+  const months = sum.monthly.map(row => ({ ...row, label: monthLabel(row.month) }))
+  return <div className="stack">
+    <PageIntro title="My finances">Income, expenses, and balance for this month, from the entries Sahay already stores.</PageIntro>
+    <section className="stats" aria-label="This month">
+      <Stat label="Total income" value={inr(sum.income)} note="This month" />
+      <Stat label="Total expenses" value={inr(sum.expense)} note="This month" />
+      <Stat label="Available balance" value={inr(sum.balance)} note="Income minus expenses" />
+    </section>
+     <p className="muted">{sum.demo_count} demo entries · {sum.recorded_count} entries recorded by you. Insights compare both kinds.</p>
+    {sum.insight && <Notice title="This month">{sum.insight}</Notice>}
+    {note && <Notice tone="good" title={note} />}
+    {err && <Notice tone="caution" title="Something needs attention">{err}</Notice>}
+<section className="card">
+      <h2>Expenses by category</h2>
+      {sum.by_category.length === 0 ? <p className="empty">No expenses recorded this month.</p> : <div className="chart">
+        <ResponsiveContainer>
+          <PieChart>
+            <Pie data={sum.by_category.map(d => ({ ...d, name: labelize(d.name) }))} dataKey="value" nameKey="name" outerRadius={88}>
+              {sum.by_category.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+            </Pie>
+            <Tooltip formatter={v => inr(v)} />
+            <Legend />
+          </PieChart>
+        </ResponsiveContainer>
+      </div>}
+    </section>
+    <section className="card">
+      <h2>Last 3 months</h2>
+      <div className="chart">
+        <ResponsiveContainer>
+          <BarChart data={months}>
+            <XAxis dataKey="label" tick={{ fill: '#5E6158', fontSize: 14 }} />
+            <YAxis tick={{ fill: '#5E6158', fontSize: 14 }} />
+            <Tooltip formatter={v => inr(v)} />
+            <Legend />
+            <Bar dataKey="income" fill="#496B55" radius={[4, 4, 0, 0]} />
+            <Bar dataKey="expense" fill="#C98770" radius={[4, 4, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </section>
+    <section className="card">
+      <h2>Add an entry</h2>
+      <form onSubmit={add} className="form-grid cols-4" style={{ marginTop: '.9rem' }}>
+        <Field label="Type">
+          <select className="field" value={f.kind} onChange={e => setF({ ...f, kind: e.target.value })}>
+            <option value="expense">Expense</option>
+            <option value="income">Income</option>
+          </select>
+        </Field>
+        <Field label="Category">
+          <select className="field" value={f.category} onChange={e => setF({ ...f, category: e.target.value })}>
+            {CATS.map(c => <option key={c} value={c}>{labelize(c)}</option>)}
+          </select>
+          </Field>
+        <Field label="Amount">
+          <input id="amount" className="field" type="number" inputMode="decimal" min="0" placeholder="0" value={f.amount} onChange={e => setF({ ...f, amount: e.target.value })} />
+        </Field>
+        <Button type="submit">Add</Button>
+      </form>
+    </section>
+    <section className="card"><h2>Recent entries</h2><div style={{ marginTop: '.4rem' }}><Transactions rows={sum.recent} /></div></section>
+    <div><Button variant="danger" onClick={() => setAsk(true)}>Delete all my data</Button></div>
+    {ask && <Modal title="Delete all stored entries?" onClose={() => setAsk(false)}>
+      <p className="lede">This removes every entry, including demo entries. This cannot be undone.</p>
+      <div className="modal-actions">
+        <Button variant="danger" onClick={wipe}>Delete everything</Button>
+        <Button variant="ghost" onClick={() => setAsk(false)}>Keep my entries</Button>
+      </div>
+      </Modal>}
   </div>
 }
-
 export function Tax() {
-  const [f, setF] = useState({ age: '', pension: '', fd: '', other: '' }), [res, setRes] = useState(null)
-  const go = async e => { e.preventDefault()
-    setRes(await api.post('/api/tax/estimate', { age: f.age ? +f.age : null, pension_annual: f.pension ? +f.pension : null, fd_interest_annual: f.fd ? +f.fd : null, other_income_annual: +f.other || 0 })) }
-  const L = (t, k) => <label className="block"><span className="text-lg">{t}</span><Inp type="number" inputMode="numeric" value={f[k]} onChange={e => setF({ ...f, [k]: e.target.value })} /></label>
-  return <div className="space-y-4"><Card title="Tax estimate (illustrative)"><form onSubmit={go} className="space-y-3">
-    {L('Your age', 'age')}{L('Pension in a year (₹)', 'pension')}{L('FD interest in a year (₹)', 'fd')}{L('Other income in a year (₹, optional)', 'other')}<Btn type="submit">Show estimate</Btn></form>
-    {res?.missing && <p className="rounded-xl bg-butter p-3 text-lg">I need a bit more information first: {res.missing.join(', ')}.</p>}
-    {res?.new_regime && <div className="space-y-2 text-lg">
-      <p className="rounded-xl bg-red-100 p-3 text-red-900">⚠️ {res.status}. Financial year in file: {res.fy}. Verified on: {res.verified_on || 'not yet'}.</p>
-      <p>New regime: taxable {inr(res.new_regime.taxable_income)} → tax about <b>{inr(res.new_regime.tax_with_cess)}</b></p>
-      <p>Old regime: taxable {inr(res.old_regime.taxable_income)} → tax about <b>{inr(res.old_regime.tax_with_cess)}</b></p>
-      <ul className="list-disc pl-6 text-base">{res.assumptions.map((a, i) => <li key={i}>{a}</li>)}</ul>
-      <a className="text-blue-700 underline" href={res.official_link} target="_blank" rel="noreferrer">Official: incometax.gov.in</a></div>}</Card>
-    <p className="text-lg">You can also ask by voice in <b>Talk to Sahay</b>: “FD ke interest par tax lagta hai kya?”</p></div>
+  const [f, setF] = useState({ age: '', pension: '', fd: '', other: '' })
+  const [res, setRes] = useState(null)
+  const [err, setErr] = useState('')
+  const go = async e => {
+    e.preventDefault(); setErr('')
+    try {
+      setRes(await api.post('/api/tax/estimate', {
+        age: f.age ? +f.age : null, pension_annual: f.pension ? +f.pension : null,
+        fd_interest_annual: f.fd ? +f.fd : null, other_income_annual: +f.other || 0,
+      }))
+    } catch (ex) { setErr('The estimate could not be prepared. ' + ex.message) }
+  }
+  const L = (t, k) => <Field label={t}><input className="field" type="number" inputMode="numeric" value={f[k]} onChange={e => setF({ ...f, [k]: e.target.value })} /></Field>
+  return <section className="card" aria-labelledby="tax-title">
+    <h2 id="tax-title">Tax estimate</h2>
+    <p className="lede">Illustrative only. Confirm the result on the official income tax website.</p>
+    <form onSubmit={go} className="form-grid split" style={{ marginTop: '1rem' }}>
+      {L('Your age', 'age')}{L('Pension in a year (₹)', 'pension')}{L('FD interest in a year (₹)', 'fd')}{L('Other income in a year (₹, optional)', 'other')}
+      <Button type="submit">Show estimate</Button>
+    </form>
+    {err && <div style={{ marginTop: '1rem' }}><Notice tone="caution" title="Could not estimate">{err}</Notice></div>}
+    {res?.missing && <div style={{ marginTop: '1rem' }}><Notice tone="caution" title="A few details are missing">Please add: {res.missing.join(', ')}.</Notice></div>}
+    {res?.new_regime && <div className="stack" style={{ marginTop: '1rem' }}>
+      <Notice tone="caution" title={res.status}>Financial year in file: {res.fy}. Verified on: {res.verified_on || 'not yet'}.</Notice>
+      <div className="stats">
+        <Stat label="New regime tax" value={inr(res.new_regime.tax_with_cess)} note={`Taxable income ${inr(res.new_regime.taxable_income)}`} />
+        <Stat label="Old regime tax" value={inr(res.old_regime.tax_with_cess)} note={`Taxable income ${inr(res.old_regime.taxable_income)}`} />
+      </div>
+      <div>
+        <p className="tx-title">Assumptions</p>
+        <ul>{res.assumptions.map((a, i) => <li key={i}>{a}</li>)}</ul>
+      </div>
+      <a href={res.official_link} target="_blank" rel="noreferrer">Official site: incometax.gov.in</a>
+    </div>}
+  </section>
 }
-
 export function Govt() {
-  const [d, setD] = useState(null); useEffect(() => { api.get('/api/schemes').then(setD) }, [])
-  return <div className="space-y-4">{d?.schemes.map(s => <Card key={s.name} title={s.name}>
-    <p className="text-lg">{s.summary}</p><p>{s.level} · {s.category}</p>
-    <p className="text-sm">Last verified: {s.verified_on || 'NOT YET VERIFIED — check the official site'}</p>
-    <a className="text-blue-700 underline text-lg" href={s.official_link} target="_blank" rel="noreferrer">Official website</a></Card>)}
-    <p className="text-sm text-slate-600">{d?.note}</p></div>
+  const [err, setErr] = useState('')
+  useEffect(() => { api.get('/api/schemes').then(setD).catch(e => setErr(e.message)) }, [])
+  return <div className="stack" id="schemes">
+    <section className="card">
+      <h2>Government schemes</h2>
+      <p className="lede">Information from Sahay’s scheme file. Check each official website before you rely on it.</p>
+    </section>
+    {err && <Notice tone="caution" title="Schemes could not be loaded">{err}</Notice>}
+    {!d && !err && <p className="empty">Loading schemes.</p>}
+    {d?.schemes.map(s => <article key={s.name} className="card">
+      <h3 style={{ fontSize: '1.25rem', fontWeight: 600 }}>{s.name}</h3>
+      <p className="muted">{s.level} · {s.category}</p>
+      <p style={{ marginTop: '.6rem' }}>{s.summary}</p>
+      <dl className="defs" style={{ marginTop: '.9rem' }}>
+        {s.eligibility && <div><dt>Who it is for</dt><dd>{s.eligibility}</dd></div>}
+        {s.documents && <div><dt>Documents usually needed</dt><dd>{s.documents}</dd></div>}
+        {s.how_to_apply && <div><dt>How to apply</dt><dd>{s.how_to_apply}</dd></div>}
+      </dl>
+      <p className="muted" style={{ marginTop: '.8rem' }}>{s.verified_on ? `Last verified: ${s.verified_on}` : 'Not yet verified. Check the official website before you rely on this.'}</p>
+      <p style={{ marginTop: '.45rem' }}><a href={s.official_link} target="_blank" rel="noreferrer">Official website</a></p>
+    </article>)}
+    {d?.note && <p className="muted">{d.note}</p>}
+  </div>
+}
+export function Safety({ lang, fam, setFam }) {
+  const [t, setT] = useState('')
+  const [r, setR] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const go = async () => {
+    setBusy(true); setErr('')
+    try { setR(await api.post('/api/explain', { text: t, lang })) }
+    catch (e) { setErr('That message could not be checked. ' + e.message) }
+    finally { setBusy(false) }
+  }
+  const readOut = () => speak([r.risk_label, ...r.flags, ...r.verify_steps].join(' '), lang)
+   const shared = [['summary', 'Monthly summary'], ['reminders', 'Important reminders'], ['alerts', 'Safety alerts']].filter(([k]) => fam[k])
+  return <div className="stack">
+    <PageIntro title="Family and safety">Choose what a trusted person may see, and ask Sahay to explain a message in plain language.</PageIntro>
+    <section className="card">
+      <h2>Family sharing</h2>
+      <p className="lede">Nothing is shared by default, and this choice stays on this device. It is not connected to a family member.</p>
+      {shared.length === 0
+        ? <p style={{ marginTop: '.8rem' }}>Nothing is shared.</p>
+        : <p style={{ marginTop: '.8rem' }}>You have chosen to share: {shared.map(([, l]) => l).join(', ')}. This is still not sent to anyone.</p>}
+      <div style={{ marginTop: '.6rem' }}>
+        {[['summary', 'Monthly summary'], ['reminders', 'Important reminders'], ['alerts', 'Safety alerts']].map(([k, l]) =>
+          <label key={k} className="check"><input type="checkbox" checked={fam[k]} onChange={e => setFam({ ...fam, [k]: e.target.checked })} />{l}</label>)}
+      </div>
+      <div style={{ marginTop: '.6rem' }}><Button variant="ghost" onClick={() => setFam({ summary: false, reminders: false, alerts: false })}>Stop sharing everything</Button></div>
+    </section>
+    <section className="card">
+      <h2>Explain this message</h2>
+      <p className="lede">Paste a bank SMS, notice, or other message. Sahay looks for common warning signs. This is a text check, not a guarantee.</p>
+      <div style={{ marginTop: '.9rem' }} className="stack">
+        <Field label="Message">
+          <textarea value={t} onChange={e => setT(e.target.value)} rows={5} placeholder="Paste the message here" className="field" />
+        </Field>
+        <div><Button onClick={go} disabled={!t.trim() || busy}>{busy ? 'Checking' : 'Explain it'}</Button></div>
+        {err && <Notice tone="caution" title="Could not check the message">{err}</Notice>}
+        {r && <div className="stack">
+          <Notice tone={r.level ? 'caution' : 'good'} title={r.level ? 'Warning signs found' : 'No common warning signs'}>{r.risk_label}</Notice>
+          <p>{r.explanation}</p>
+          {r.flags.length > 0 && <div><p className="tx-title">What stood out</p><ul>{r.flags.map((x, i) => <li key={i}>{x}</li>)}</ul></div>}
+          <div><p className="tx-title">Safe next steps</p><ol>{r.verify_steps.map((x, i) => <li key={i}>{x}</li>)}</ol></div>
+          <p className="muted">{r.disclaimer}</p>
+           <div><Button variant="secondary" onClick={readOut}><Volume2 size={18} aria-hidden="true" /> Read aloud</Button></div>
+        </div>}
+      </div>
+    </section>
+  </div>
+}
+export function TransactionsPreview({ rows }) {
+  return <Transactions rows={rows} />
 }
 
-export function Safety({ lang }) {
-  const [t, setT] = useState(''), [r, setR] = useState(null), [busy, setBusy] = useState(false)
-  const [fam, setFam] = useState({ summary: false, reminders: false, alerts: false })
-  const go = async () => { setBusy(true); try { setR(await api.post('/api/explain', { text: t, lang })) } finally { setBusy(false) } }
-  const readOut = () => speak([r.risk_label, ...r.flags, ...r.verify_steps].join(' '), lang)
-  return <div className="space-y-4">
-    <Card title="Explain this message to me">
-      <textarea value={t} onChange={e => setT(e.target.value)} rows={5} placeholder="Paste the bank SMS, notice or message here…" className="field" />
-      <Btn onClick={go} disabled={!t.trim() || busy}>{busy ? 'Checking…' : 'Explain it'}</Btn>
-      {r && <div className="space-y-3 text-lg">
-        <p className={`rounded-xl p-3 font-semibold ${r.level ? 'bg-rose' : 'bg-mint'}`}>{r.risk_label}</p>
-        <p>{r.explanation}</p>
-        {r.flags.length > 0 && <ul className="list-disc pl-6">{r.flags.map((x, i) => <li key={i}>{x}</li>)}</ul>}
-        <p className="font-bold">Safe next steps</p><ol className="list-decimal pl-6">{r.verify_steps.map((x, i) => <li key={i}>{x}</li>)}</ol>
-        <p className="text-sm text-slate-600">{r.disclaimer}</p><Btn c="bg-peach" onClick={readOut}>🔊 Read aloud</Btn></div>}</Card>
-    <Card title="Family Connect (DEMO — not connected to anyone)">
-      <p className="text-lg">You decide what a trusted family member can see. Nothing is shared by default.</p>
-      {[['summary', 'Monthly summary'], ['reminders', 'Important reminders'], ['alerts', 'Safety alerts']].map(([k, l]) =>
-        <label key={k} className="flex items-center gap-3 text-xl"><input type="checkbox" className="h-7 w-7" checked={fam[k]} onChange={e => setFam({ ...fam, [k]: e.target.checked })} />{l}</label>)}
-      <Btn c="bg-peach" onClick={() => setFam({ summary: false, reminders: false, alerts: false })}>Stop sharing everything</Btn></Card></div>
-}
+      
