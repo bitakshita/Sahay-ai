@@ -1,0 +1,99 @@
+{
+ "fy": "2026-27",
+ "verified_on": null,
+ "status": "UNVERIFIED sample values (slabs reported unchanged for FY 2026-27; 80TTB-type limit reported Rs 1 lakh) - confirm on incometax.gov.in before showing anyone",
+ "cess": 0.04,
+ "new": {
+  "slabs": [
+   [
+    400000,
+    0
+   ],
+   [
+    800000,
+    0.05
+   ],
+   [
+    1200000,
+    0.1
+   ],
+   [
+    1600000,
+    0.15
+   ],
+   [
+    2000000,
+    0.2
+   ],
+   [
+    2400000,
+    0.25
+   ],
+   [
+    null,
+    0.3
+   ]
+  ],
+  "std_deduction": 75000,
+  "rebate_limit": 1200000,
+  "rebate_max": 60000
+ },
+ "old": {
+  "slabs_by_age": {
+   "below60": [
+    [
+     250000,
+     0
+    ],
+    [
+     500000,
+     0.05
+    ],
+    [
+     1000000,
+     0.2
+    ],
+    [
+     null,
+     0.3
+    ]
+   ],
+   "60to79": [
+    [
+     300000,
+     0
+    ],
+    [
+     500000,
+     0.05
+    ],
+    [
+     1000000,
+     0.2
+    ],
+    [
+     null,
+     0.3
+    ]
+   ],
+   "80plus": [
+    [
+     500000,
+     0
+    ],
+    [
+     1000000,
+     0.2
+    ],
+    [
+     null,
+     0.3
+    ]
+   ]
+  },
+  "std_deduction": 50000,
+  "rebate_limit": 500000,
+  "rebate_max": 12500,
+  "sec_80ttb_max": 100000
+ }
+}

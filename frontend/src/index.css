@@ -1,0 +1,17 @@
+@import "tailwindcss";
+@theme {
+  --color-cream: #FFF8EE;  --color-peach: #FFE2CC;  --color-butter: #FFF0B8;  --color-mint: #D9F2E4;
+  --color-sky: #D8EBFA;    --color-lilac: #E8E0F7;  --color-rose: #FADADD;
+  --color-sun: #FFC24B;    --color-sun-deep: #F5A524; --color-coral: #C8553D;
+  --color-ink: #3A2B22;    --color-ink-soft: #6B5A4E;
+}
+html { font-size: var(--fs, 19px); }
+body { font-family: "Nunito", "Noto Sans Devanagari", system-ui, sans-serif; color: var(--color-ink);
+  background: linear-gradient(180deg, #FFF1DC 0%, #FFF8EE 45%, #EEF8F2 100%) fixed; }
+.card  { background: #fff; border: 2px solid #FFE6D0; border-radius: 1.5rem; padding: 1.25rem; box-shadow: 0 6px 20px rgba(150, 100, 50, .10); }
+.btn   { border-radius: 1.1rem; padding: .75rem 1.3rem; min-height: 3.5rem; font-weight: 800; font-size: 1.05rem; color: var(--color-ink);
+         box-shadow: 0 3px 0 rgba(120, 80, 40, .18); transition: transform .1s; }
+.btn:active { transform: translateY(2px); box-shadow: none; }
+.btn:disabled { opacity: .5; }
+.field { width: 100%; min-height: 3.5rem; border-radius: 1rem; border: 2px solid #EBD6C0; background: #FFFEFB; padding: .75rem 1rem; font-size: 1.05rem; }
+button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, a:focus-visible { outline: 4px solid var(--color-sun-deep); outline-offset: 2px; }
