@@ -20,12 +20,29 @@ def _docs():
     if p.exists(): docs += json.loads(p.read_text(encoding="utf-8"))
     return docs
 
+
 def search(query: str, k: int = 3):
-    q, out = _tokens(query), []
+    q = _tokens(query)
+    if not q:
+        return []
+
+    out = []
+
     for d in _docs():
-        head, body = _tokens(d["title"] + " " + " ".join(d.get("keywords", []))), _tokens(d["text"])
-        if q & head: out.append((3 * len(q & head) + len(q & body), d))
-    return [d for _, d in sorted(out, key=lambda x: -x[0])[:k]]
+        head = _tokens(
+            d["title"] + " " + " ".join(d.get("keywords", []))
+        )
+        body = _tokens(d["text"])
+
+        score = 3 * len(q & head) + len(q & body)
+
+        if score > 0:
+            out.append((score, d))
+
+    return [
+        d for _, d in sorted(out, key=lambda x: -x[0])[:k]
+    ]
+
 
 def context(hits):
     return "\n\n".join(f"[{h['title']}] {h['text']} (source: {h['source']}, verified: {h.get('verified_on') or 'NOT VERIFIED'})" for h in hits)
